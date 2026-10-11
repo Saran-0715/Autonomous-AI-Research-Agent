@@ -1,0 +1,8 @@
+﻿# Existing CLI agents
+python-dotenv>=1.0
+tavily-python>=0.5
+groq>=0.11
+
+# Backend API
+fastapi>=0.110
+uvicorn>=0.29

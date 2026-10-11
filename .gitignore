@@ -14,3 +14,16 @@ venv/
 .env.*
 !.env.example
 .vscode/
+
+# --- Web dashboard additions ---
+runs/
+research_report.txt
+citation_quality_report.txt
+fact_check_report.txt
+research_quality_report.txt
+research_agent.log
+*.log
+
+# Frontend tooling
+node_modules/
+dist/
