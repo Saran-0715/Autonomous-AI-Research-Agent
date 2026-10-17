@@ -1,0 +1,69 @@
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def write_status(run_dir: Path, stage: str, status: str, error=None):
+    """Save the current stage status for this research run."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    status_data = {
+        "stage": stage,
+        "status": status,
+        "error": error,
+    }
+
+    status_file = run_dir / "status.json"
+    temporary_file = run_dir / "status.tmp"
+
+    temporary_file.write_text(
+        json.dumps(status_data, indent=2),
+        encoding="utf-8",
+    )
+    temporary_file.replace(status_file)
+
+
+def main():
+    if len(sys.argv) != 3:
+        print(
+            "Usage: py -m backend.worker <run_directory> <topic>",
+            file=sys.stderr,
+        )
+        return 2
+
+    run_dir = Path(sys.argv[1]).resolve()
+    topic = sys.argv[2].strip()
+
+    if len(topic) < 3:
+        print("Topic must contain at least 3 characters.", file=sys.stderr)
+        return 2
+
+    project_root = Path(__file__).resolve().parent.parent
+
+    # Load environment variables without displaying their values.
+    from dotenv import load_dotenv
+
+    load_dotenv(project_root / ".env")
+
+    # Ensure imports resolve to the existing project modules.
+    sys.path.insert(0, str(project_root))
+
+    if not os.getenv("TAVILY_API_KEY") or not os.getenv("GROQ_API_KEY"):
+        write_status(
+            run_dir,
+            "configuration",
+            "failed",
+            "Required API keys are not configured.",
+        )
+        return 1
+
+    # This is a safe placeholder until the actual pipeline is connected.
+    write_status(run_dir, "queued", "ready")
+    print("Worker setup passed. Research pipeline is not connected yet.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
