@@ -27,3 +27,5 @@ research_agent.log
 # Frontend tooling
 node_modules/
 dist/
+
+*.bak
