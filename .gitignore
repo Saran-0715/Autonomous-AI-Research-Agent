@@ -29,3 +29,7 @@ node_modules/
 dist/
 
 *.bak
+
+# Local backup files
+backend.zip
+fact_checking_agent_backup.py
