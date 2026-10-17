@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/components/Hero.tsx","./src/components/Navbar.tsx","./src/components/Workspace.tsx","./src/three/HeroScene.tsx","./src/three/SceneObjects.tsx"],"version":"5.9.3"}
