@@ -1,19 +1,24 @@
-# Autonomous AI Research Agent 🤖
+# AETHER-9 — Autonomous AI Research Agent
 
-An AI-powered research platform designed to automate information gathering, fact-checking, data analysis, and report generation.
+AETHER-9 is an AI-powered research platform designed to automate information gathering, evidence analysis, fact-checking, and research report generation through an interactive 3D interface.
 
-### 🛠️ Tech Stack
-- Python · FastAPI · React · Vite
-- Groq · Tavily
+### Features
+- Autonomous web research and analysis
+- Evidence validation and source citations
+- Interactive 3D research visualization
+- Structured research reports
+- Research history and progress tracking
 
-### ✨ Goal
-Build an extensible AI research system that evolves with new agents, tools, and features.
+### Tech Stack
+- **Frontend:** React, Vite, Three.js
+- **Backend:** Python, FastAPI
+- **AI & Search:** Groq, Tavily
 
-### 🚀 Getting Started
-Clone the repository and follow the setup instructions to run the backend and frontend locally.
+### Getting Started
+1. Clone the repository.
+2. Install backend dependencies using `pip install -r requirements.txt`.
+3. Configure the required API keys in `.env`.
+4. Start the FastAPI backend and React frontend.
 
-🔗 **Repository:** [Autonomous AI Research Agent](https://github.com/Saran-0715/Autonomous-AI-Research-Agent)
-
-👨‍💻 **Author:** Saran Kumar T
-
-*Continuously evolving. Built to grow.*
+### Project Goal
+To make AI-powered research more efficient, transparent, and interactive through autonomous analysis and immersive 3D visualization.
