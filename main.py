@@ -1,12 +1,28 @@
 import os
+import json
 import time
 import logging
+from pathlib import Path
 from dotenv import load_dotenv
 from tavily import TavilyClient
 
 from data_analysis_agent import analyze_research
 from fact_checking_agent import fact_check_research
 from writer_agent import write_report
+
+
+# ── Per-run status writer ──────────────────────────────────────────────────
+def _status(stage: str, status: str, error: str | None = None, **extra) -> None:
+    """Write status.json to AETHER_RUN_DIR (set by the worker) or CWD."""
+    run_dir = Path(os.environ.get("AETHER_RUN_DIR", ".")).resolve()
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    data = {"stage": stage, "status": status, "error": error}
+    data.update(extra)
+
+    tmp = run_dir / "status.tmp"
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(run_dir / "status.json")
 
 
 def main():
@@ -19,7 +35,7 @@ def main():
         encoding="utf-8"
     )
 
-    print("=== AUTONOMOUS AI RESEARCH AGENT ===")
+    print("=== AETHER INTELLIGENCE RESEARCH PIPELINE ===")
 
     question = input("\nWhat do you want to research? ").strip()
 
@@ -30,24 +46,52 @@ def main():
     api_key = os.getenv("TAVILY_API_KEY")
 
     if not api_key:
+        _status("configuration", "failed", "TAVILY_API_KEY not configured.")
         print("TAVILY_API_KEY not found. Check your .env file.")
         return
 
+    # ── STAGE 1: SUPERVISOR ────────────────────────────────────────────────
+    _status("supervisor", "running", agent="supervisor")
     print("\n=== SUPERVISOR AGENT ===")
 
     tasks = [
-        f"{question} - Current market trends",
-        f"{question} - Major companies and competitors",
-        f"{question} - Market challenges",
-        f"{question} - Future opportunities"
+        f"{question} - Current trends and overview",
+        f"{question} - Key players and market leaders",
+        f"{question} - Challenges and barriers",
+        f"{question} - Future outlook and opportunities",
     ]
 
+    plan = {
+        "topic": question,
+        "tasks": tasks,
+        "research_questions": [
+            f"What are the dominant trends in {question}?",
+            f"Who are the key actors in {question}?",
+            f"What challenges does {question} face?",
+            f"What is the future trajectory of {question}?",
+        ]
+    }
+
+    # Save supervisor plan
+    run_dir = Path(os.environ.get("AETHER_RUN_DIR", ".")).resolve()
+    try:
+        (run_dir / "supervisor_plan.json").write_text(
+            json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+    print("Research plan created:")
     for task in tasks:
-        print(task)
+        print(f"  · {task}")
+
+    _status("supervisor", "completed", agent="supervisor", tasks=len(tasks))
+
+    # ── STAGE 2: RESEARCH AGENT ────────────────────────────────────────────
+    _status("research", "running", agent="research", source_count=0)
+    print("\n=== RESEARCH AGENT ===")
 
     research_results = []
-
-    print("\n=== RESEARCH AGENT ===")
 
     try:
         client = TavilyClient(api_key=api_key)
@@ -57,290 +101,204 @@ def main():
 
             for attempt in range(1, 4):
                 try:
-                    response = client.search(
-                        query=task,
-                        max_results=3
-                    )
-
+                    response = client.search(query=task, max_results=3)
                     results = response.get("results", [])
 
                     for result in results:
                         result["task"] = task
                         research_results.append(result)
 
-                    print(
-                        f"Search successful! Found {len(results)} results."
-                    )
-                    logging.info("Search succeeded for task: %s", task)
+                    print(f"  Found {len(results)} results.")
+                    logging.info("Search succeeded: %s", task)
                     break
 
                 except Exception as error:
-                    print(
-                        f"Search attempt {attempt} failed: {error}"
-                    )
+                    print(f"  Attempt {attempt} failed: {error}")
                     logging.exception("Search attempt failed")
-
                     if attempt < 3:
                         time.sleep(2)
 
+            # Update source count after each task
+            _status("research", "running", agent="research",
+                    source_count=len(research_results))
+
     except Exception:
         logging.exception("Research agent failed")
+        _status("research", "failed", "Research agent encountered an error.",
+                agent="research")
         print("Research agent failed. Check research_agent.log.")
         return
 
     if not research_results:
+        _status("research", "failed",
+                "No research results were collected. Try a different topic.",
+                agent="research")
         print("\nNo research results were collected.")
         return
 
-    print("\n=== RESEARCH FINDINGS ===")
+    # Save raw results
+    try:
+        (run_dir / "results.json").write_text(
+            json.dumps(research_results, indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+    except OSError:
+        pass
 
+    _status("research", "completed", agent="research",
+            source_count=len(research_results))
+
+    print(f"\n=== RESEARCH FINDINGS ({len(research_results)} sources) ===")
     for i, result in enumerate(research_results, start=1):
-        print(f"\n{i}. Research area: {result.get('task', 'Unknown')}")
-        print(f"Title: {result.get('title', 'No title')}")
-        print(f"URL: {result.get('url', '')}")
-        print(f"Information: {result.get('content', '')[:500]}")
+        print(f"\n{i}. {result.get('title', 'No title')}")
+        print(f"   URL: {result.get('url', '')}")
 
+    # ── STAGE 3: DATA ANALYSIS ─────────────────────────────────────────────
+    _status("analysis", "running", agent="analysis",
+            source_count=len(research_results))
     print("\n=== DATA ANALYSIS AGENT ===")
 
+    analysis_result = {}
     try:
-        analyze_research(research_results)
+        analysis_result = analyze_research(research_results)
+        logging.info("Data analysis complete")
     except Exception:
         logging.exception("Data analysis failed")
         print("Data analysis failed. Check research_agent.log.")
 
+    _status("analysis", "completed", agent="analysis",
+            source_count=len(research_results),
+            themes=len(analysis_result.get("themes", [])))
+
+    # ── STAGE 4: FACT-CHECKING ─────────────────────────────────────────────
+    _status("fact_check", "running", agent="fact_check",
+            source_count=len(research_results))
     print("\n=== FACT-CHECKING AGENT ===")
 
-    fact_check_report = {
-        "claims": [],
-        "evidence_sources": []
-    }
+    fact_check_report = {"claims": [], "evidence_sources": []}
 
     try:
         result = fact_check_research(research_results)
-
         if isinstance(result, dict):
             fact_check_report = result
 
         claims = fact_check_report.get("claims", [])
-
         if not isinstance(claims, list):
             claims = []
 
         total_claims = len(claims)
-        single_source_claims = 0
-        multiple_snippet_claims = 0
-        insufficient_claims = 0
-        unknown_status_claims = 0
-
-        corroborated_claims = 0
-        no_independent_support_claims = 0
-        no_new_domain_claims = 0
-        verification_failed_claims = 0
-        skipped_claims = 0
-        not_checked_claims = 0
-
-        for claim in claims:
-            if not isinstance(claim, dict):
-                unknown_status_claims += 1
-                continue
-
-            original_status = claim.get("status", "UNKNOWN")
-
-            if original_status == "SINGLE-SOURCE EVIDENCE":
-                single_source_claims += 1
-            elif original_status == "SUPPORTED BY MULTIPLE SNIPPETS":
-                multiple_snippet_claims += 1
-            elif original_status == "INSUFFICIENT EVIDENCE":
-                insufficient_claims += 1
-            else:
-                unknown_status_claims += 1
-
-            independent_status = claim.get(
-                "independent_status", "NOT CHECKED"
-            )
-
-            if independent_status == "CORROBORATED BY DISTINCT DOMAINS":
-                corroborated_claims += 1
-            elif independent_status == "NO SUPPORTING INDEPENDENT EVIDENCE":
-                no_independent_support_claims += 1
-            elif independent_status == "NO NEW DOMAINS FOUND":
-                no_new_domain_claims += 1
-            elif independent_status in (
-                "VERIFICATION FAILED",
-                "SEARCH FAILED"
-            ):
-                verification_failed_claims += 1
-            elif independent_status.startswith("SKIPPED"):
-                skipped_claims += 1
-            else:
-                not_checked_claims += 1
-
-        claims_with_matching_evidence = (
-            single_source_claims + multiple_snippet_claims
+        corroborated = sum(
+            1 for c in claims
+            if isinstance(c, dict) and
+            c.get("independent_status") == "CORROBORATED BY DISTINCT DOMAINS"
         )
 
-        if total_claims:
-            original_evidence_coverage = round(
-                claims_with_matching_evidence / total_claims * 100
+        print(f"\nTotal claims reviewed: {total_claims}")
+        print(f"Corroborated by distinct domains: {corroborated}")
+
+        # Save fact_check_report.json
+        try:
+            (run_dir / "fact_check_report.json").write_text(
+                json.dumps(fact_check_report, indent=2, ensure_ascii=False),
+                encoding="utf-8"
             )
-        else:
-            original_evidence_coverage = 0
+        except OSError:
+            pass
 
-        independent_checked = (
-            corroborated_claims
-            + no_independent_support_claims
-            + no_new_domain_claims
-            + verification_failed_claims
-        )
+        # Also generate research_quality_report.txt (for existing download route)
+        _write_quality_report(run_dir, question, claims)
 
-        if independent_checked:
-            independent_corroboration_rate = round(
-                corroborated_claims / independent_checked * 100
-            )
-        else:
-            independent_corroboration_rate = 0
-
-        print("\n=== ORIGINAL EVIDENCE DASHBOARD ===")
-        print(f"Total claims reviewed: {total_claims}")
-        print(
-            f"Claims with matching quotes: "
-            f"{claims_with_matching_evidence}/{total_claims}"
-        )
-        print(
-            f"Original evidence coverage: "
-            f"{original_evidence_coverage}%"
-        )
-        print(f"Single-source claims: {single_source_claims}")
-        print(f"Multiple-snippet claims: {multiple_snippet_claims}")
-        print(f"Claims with insufficient evidence: {insufficient_claims}")
-
-        print("\n=== INDEPENDENT VERIFICATION DASHBOARD ===")
-        print(f"Claims reviewed: {total_claims}")
-        print(f"Claims checked against new domains: {independent_checked}")
-        print(f"Corroborated by distinct domains: {corroborated_claims}")
-        print(
-            f"Corroboration rate among checked claims: "
-            f"{independent_corroboration_rate}%"
-        )
-        print(
-            f"No supporting independent evidence: "
-            f"{no_independent_support_claims}"
-        )
-        print(f"No new domains found: {no_new_domain_claims}")
-        print(f"Verification failures: {verification_failed_claims}")
-        print(f"Skipped claims: {skipped_claims}")
-        print(f"Not checked / unknown status: {not_checked_claims}")
-
-        print("\nIMPORTANT:")
-        print("- Matching quotes do not prove factual accuracy.")
-        print("- Different domains do not guarantee independent reporting.")
-        print("- Corroboration means candidate evidence passed automated checks.")
-        print("- Important claims still need human review.")
-
-        with open(
-            "research_quality_report.txt",
-            "w",
-            encoding="utf-8"
-        ) as file:
-            file.write("RESEARCH QUALITY DASHBOARD\n")
-            file.write("==========================\n\n")
-            file.write(f"Research topic: {question}\n\n")
-
-            file.write("ORIGINAL EVIDENCE\n")
-            file.write("-----------------\n")
-            file.write(f"Total claims reviewed: {total_claims}\n")
-            file.write(
-                f"Claims with matching quotes: "
-                f"{claims_with_matching_evidence}/{total_claims}\n"
-            )
-            file.write(
-                f"Original evidence coverage: "
-                f"{original_evidence_coverage}%\n"
-            )
-            file.write(f"Single-source claims: {single_source_claims}\n")
-            file.write(
-                f"Multiple-snippet claims: {multiple_snippet_claims}\n"
-            )
-            file.write(
-                f"Claims with insufficient evidence: "
-                f"{insufficient_claims}\n"
-            )
-
-            file.write("\nINDEPENDENT VERIFICATION\n")
-            file.write("------------------------\n")
-            file.write(
-                f"Claims checked against new domains: "
-                f"{independent_checked}\n"
-            )
-            file.write(
-                f"Corroborated by distinct domains: "
-                f"{corroborated_claims}\n"
-            )
-            file.write(
-                f"Corroboration rate among checked claims: "
-                f"{independent_corroboration_rate}%\n"
-            )
-            file.write(
-                f"No supporting independent evidence: "
-                f"{no_independent_support_claims}\n"
-            )
-            file.write(f"No new domains found: {no_new_domain_claims}\n")
-            file.write(f"Verification failures: {verification_failed_claims}\n")
-            file.write(f"Skipped claims: {skipped_claims}\n")
-            file.write(f"Not checked / unknown status: {not_checked_claims}\n")
-
-            file.write("\nCLAIM-BY-CLAIM RESULTS\n")
-            file.write("----------------------\n")
-
-            for i, claim in enumerate(claims, start=1):
-                if not isinstance(claim, dict):
-                    continue
-
-                file.write(f"\n{i}. {claim.get('claim', 'Unknown claim')}\n")
-                file.write(
-                    f"Original evidence: {claim.get('status', 'UNKNOWN')}\n"
-                )
-                file.write(
-                    "Independent verification: "
-                    f"{claim.get('independent_status', 'NOT CHECKED')}\n"
-                )
-                file.write(
-                    f"Independent domains: "
-                    f"{', '.join(claim.get('independent_domains', [])) or 'None'}\n"
-                )
-
-            file.write("\nLIMITATIONS\n")
-            file.write("-----------\n")
-            file.write(
-                "1. Quote matching does not prove factual accuracy.\n"
-                "2. AI support assessments can make mistakes.\n"
-                "3. Different domains may repeat the same original report.\n"
-                "4. Source reliability, publication dates, and context need review.\n"
-                "5. A failed or skipped check is not evidence that a claim is false.\n"
-            )
-
-        print("\nDashboard saved to: research_quality_report.txt")
-        logging.info("Research quality dashboard completed")
+        logging.info("Fact-checking complete: %d claims", total_claims)
 
     except Exception:
-        logging.exception("Fact-checking dashboard failed")
-        print("Fact-checking dashboard failed. Check research_agent.log.")
+        logging.exception("Fact-checking failed")
+        print("Fact-checking failed. Check research_agent.log.")
 
+    _status("fact_check", "completed", agent="fact_check",
+            source_count=len(research_results),
+            claims=len(fact_check_report.get("claims", [])))
+
+    # ── STAGE 5: WRITER ────────────────────────────────────────────────────
+    _status("writer", "running", agent="writer",
+            source_count=len(research_results))
     print("\n=== AI WRITER AGENT ===")
 
     try:
-        write_report(
-            question,
-            research_results,
-            fact_check_report
-        )
+        write_report(question, research_results, fact_check_report)
         logging.info("Writer agent finished")
-
     except Exception:
         logging.exception("Report generation failed")
+        _status("writer", "failed", "Report generation failed.", agent="writer")
         print("Report generation failed. Check research_agent.log.")
+        return
 
-    print("\n=== RESEARCH PIPELINE COMPLETED ===")
+    _status("completed", "completed", agent="writer",
+            source_count=len(research_results))
+    print("\n=== AETHER RESEARCH PIPELINE COMPLETED ===")
+
+
+def _write_quality_report(run_dir: Path, question: str, claims: list) -> None:
+    """Write the text quality report (preserves existing download route)."""
+    total = len(claims)
+    single = sum(1 for c in claims if isinstance(c, dict) and
+                 c.get("status") == "SINGLE-SOURCE EVIDENCE")
+    multi = sum(1 for c in claims if isinstance(c, dict) and
+                c.get("status") == "SUPPORTED BY MULTIPLE SNIPPETS")
+    insufficient = sum(1 for c in claims if isinstance(c, dict) and
+                       c.get("status") == "INSUFFICIENT EVIDENCE")
+    corroborated = sum(1 for c in claims if isinstance(c, dict) and
+                       c.get("independent_status") == "CORROBORATED BY DISTINCT DOMAINS")
+
+    coverage = round((single + multi) / total * 100) if total else 0
+    checked = sum(1 for c in claims if isinstance(c, dict) and
+                  c.get("independent_status") not in ("NOT CHECKED", None))
+    corr_rate = round(corroborated / checked * 100) if checked else 0
+
+    lines = [
+        "RESEARCH QUALITY DASHBOARD",
+        "==========================\n",
+        f"Research topic: {question}\n",
+        "ORIGINAL EVIDENCE",
+        "-----------------",
+        f"Total claims reviewed: {total}",
+        f"Claims with matching quotes: {single + multi}/{total}",
+        f"Original evidence coverage: {coverage}%",
+        f"Single-source claims: {single}",
+        f"Multiple-snippet claims: {multi}",
+        f"Claims with insufficient evidence: {insufficient}\n",
+        "INDEPENDENT VERIFICATION",
+        "------------------------",
+        f"Claims checked against new domains: {checked}",
+        f"Corroborated by distinct domains: {corroborated}",
+        f"Corroboration rate among checked claims: {corr_rate}%\n",
+        "CLAIM-BY-CLAIM RESULTS",
+        "----------------------",
+    ]
+
+    for i, claim in enumerate(claims, 1):
+        if not isinstance(claim, dict):
+            continue
+        lines += [
+            f"\n{i}. {claim.get('claim', 'Unknown claim')}",
+            f"   Original evidence: {claim.get('status', 'UNKNOWN')}",
+            f"   Independent verification: {claim.get('independent_status', 'NOT CHECKED')}",
+        ]
+
+    lines += [
+        "\nLIMITATIONS",
+        "-----------",
+        "1. Quote matching does not prove factual accuracy.",
+        "2. AI assessments can make mistakes.",
+        "3. Different domains may repeat the same original report.",
+        "4. Source reliability and dates need human review.",
+    ]
+
+    try:
+        (run_dir / "research_quality_report.txt").write_text(
+            "\n".join(lines), encoding="utf-8"
+        )
+    except OSError as exc:
+        logging.warning("Could not write research_quality_report.txt: %s", exc)
 
 
 if __name__ == "__main__":
@@ -350,5 +308,4 @@ if __name__ == "__main__":
         print("\nResearch cancelled by user.")
     except Exception:
         logging.exception("Unexpected pipeline error")
-        print("\nAn unexpected error occurred.")
-        print("Check research_agent.log.")
+        print("\nAn unexpected error occurred. Check research_agent.log.")
