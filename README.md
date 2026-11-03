@@ -1,4 +1,4 @@
-# AETHER-9 — Autonomous AI Research Agent
+# AETHER — Autonomous AI Research Agent
 
 AETHER-9 is an AI-powered research platform designed to automate information gathering, evidence analysis, fact-checking, and research report generation through an interactive 3D interface.
 
