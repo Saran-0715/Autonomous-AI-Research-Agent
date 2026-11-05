@@ -26,7 +26,11 @@ research_agent.log
 
 # Frontend tooling
 node_modules/
+node_modules_old/
 dist/
+
+# Root-level lock file (not part of this project)
+package-lock.json
 
 *.bak
 
